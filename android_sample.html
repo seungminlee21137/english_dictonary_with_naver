@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>네이버 사전 (Clean View)</title>
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: sans-serif; }
+        
+        /* 상단 커스텀 검색창 */
+        #search-bar {
+            height: 60px;
+            background: #03c75a; /* 네이버 그린 */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-bottom: 1px solid #02b150;
+            position: relative;
+            z-index: 9999;
+        }
+        input {
+            width: 320px;
+            padding: 12px;
+            border: none;
+            border-radius: 4px 0 0 4px;
+            font-size: 16px;
+            outline: none;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button {
+            padding: 12px 24px;
+            border: none;
+            background: #19ce60;
+            color: white;
+            font-weight: bold;
+            font-size: 16px;
+            border-radius: 0 4px 4px 0;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button:hover { background: #17bd58; }
+
+        /* 결과창 */
+        #result-frame {
+            width: 100%;
+            height: calc(100% - 60px);
+            border: none;
+            display: block;
+            background: white;
+        }
+        
+        #loading {
+            display: none;
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            color: #666;
+            font-size: 16px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="search-bar">
+        <input type="text" id="keyword" placeholder="검색어 입력 (예: apple)" onkeypress="if(event.key==='Enter') doSearch()">
+        <button onclick="doSearch()">검색</button>
+    </div>
+
+    <div id="loading">검색 결과를 불러옵니다...</div>
+    <iframe id="result-frame"></iframe>
+
+    <script>
+        async function doSearch() {
+            const keyword = document.getElementById('keyword').value.trim();
+            if (!keyword) return;
+
+            const frame = document.getElementById('result-frame');
+            const loading = document.getElementById('loading');
+
+            frame.srcdoc = ""; 
+            loading.style.display = "block";
+
+            // -----------------------------------------------------------
+            // [핵심 변경] dict.naver.com 대신 search.naver.com 사용
+            // where=dic : 사전 탭 검색 결과만 요청 (서버 렌더링 방식)
+            // -----------------------------------------------------------
+            const targetUrl = `https://en.dict.naver.com/#/search?query=${encodeURIComponent(keyword)}`;
+            
+            // 프록시 적용
+            const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+
+            try {
+                const response = await fetch(proxyUrl);
+                if (!response.ok) throw new Error('Proxy Error');
+                
+                const htmlContent = await response.text();
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(htmlContent, 'text/html');
+
+                // -----------------------------------------------------------
+                // [CSS 필터] 통합검색 페이지의 불필요한 부분 제거
+                // -----------------------------------------------------------
+                const styleTag = doc.createElement('style');
+                styleTag.innerHTML = `
+                    /* 네이버 헤더, 검색창, 푸터, 메뉴바 제거 */
+                    #header, #footer, .lnb_group, .nx_green_search, .gnb_wrap { 
+                        display: none !important; 
+                    }
+                    
+                    /* 광고 및 기타 섹션 제거 */
+                    .ad_section, .sp_ncn, .api_subject_bx > .head { 
+                        display: none !important; 
+                    }
+
+                    /* 우측 사이드바 제거 */
+                    #container .aside { display: none !important; }
+
+                    /* 본문 디자인 정리 */
+                    body { background: #fff !important; min-width: auto !important; }
+                    #container { width: 100% !important; margin: 0 !important; padding: 20px !important; }
+                    #content { width: 100% !important; margin: 0 !important; }
+                    .main_pack { width: 100% !important; margin: 0 !important; }
+                    
+                    /* 사전 결과 박스 디자인 개선 */
+                    .api_subject_bx { border: none !important; margin-bottom: 20px !important; }
+                `;
+                
+                // 이미지/링크 깨짐 방지 (Base URL 설정)
+                const baseTag = doc.createElement('base');
+                baseTag.href = "https://search.naver.com/";
+                
+                doc.head.prepend(baseTag);
+                doc.head.appendChild(styleTag);
+
+                // 스크립트 제거 (통합검색 페이지는 JS 없어도 잘 나옵니다)
+                // 불필요한 리다이렉트나 에러 방지
+                doc.querySelectorAll('script').forEach(el => el.remove());
+
+                frame.srcdoc = doc.documentElement.outerHTML;
+
+            } catch (error) {
+                alert("검색 중 오류가 발생했습니다.");
+                console.error(error);
+            } finally {
+                loading.style.display = "none";
+            }
+        }
+    </script>
+</body>
+</html>
