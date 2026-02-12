@@ -61,16 +61,30 @@ def extract_audio_deeply(data):
     return None
 
 def get_naver_data(keyword):
+    # 모바일 API 엔드포인트가 차단이 덜 되는 경향이 있어 변경 시도
+    # PC 버전: https://en.dict.naver.com/api3/enko/search?query=...
     url = f"https://en.dict.naver.com/api3/enko/search?query={keyword}&m=pc&lang=ko"
+    
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        # 크롬 브라우저인 척하는 강력한 헤더
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
         "Referer": "https://en.dict.naver.com/",
+        "Connection": "keep-alive"
     }
     
     result_dict = {"meanings": [], "audio": {"US": None, "GB": None}}
+    
     try:
-        response = requests.get(url, headers=headers)
-        if response.status_code != 200: return result_dict
+        response = requests.get(url, headers=headers, timeout=5) # 5초 타임아웃 설정
+        
+        # [디버깅] 상태 코드가 200(성공)이 아니면 에러 메시지를 화면에 출력
+        if response.status_code != 200:
+            st.error(f"서버 연결 오류: {response.status_code}")
+            # 403이면 차단됨, 500이면 네이버 서버 오류
+            return result_dict
+
         full_data = response.json()
         
         all_found_values = extract_values_deeply(full_data)
@@ -87,7 +101,6 @@ def get_naver_data(keyword):
                 s_type = str(item.get('symbolType', '')).upper()
                 s_file = item.get('symbolFile', '')
                 
-                # [중요] HTTP -> HTTPS 변환
                 if s_file and s_file.startswith("http://"):
                     s_file = s_file.replace("http://", "https://")
 
@@ -96,7 +109,11 @@ def get_naver_data(keyword):
                         result_dict["audio"]["US"] = s_file
                     elif 'GB' in s_type or '영국' in s_type:
                         result_dict["audio"]["GB"] = s_file
-    except: pass
+    except Exception as e:
+        # 에러 발생 시 로그 출력
+        st.error(f"에러 발생: {str(e)}")
+        pass
+        
     return result_dict
 
 # --------------------------------------------------------------------------
