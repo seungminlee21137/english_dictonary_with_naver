@@ -5,7 +5,7 @@ import re
 import os
 
 # --------------------------------------------------------------------------
-# 1. 데이터 관리 (저장/로드)
+# 1. 데이터 관리
 # --------------------------------------------------------------------------
 DATA_FILE = "my_dictionary_data.json"
 
@@ -23,7 +23,20 @@ def save_data(data):
         json.dump(data, f, ensure_ascii=False, indent=4)
 
 # --------------------------------------------------------------------------
-# 2. 크롤링 로직 (HTTPS 변환 포함)
+# 2. 유틸리티 함수
+# --------------------------------------------------------------------------
+def set_keyword(keyword):
+    st.session_state['search_input'] = keyword
+    st.session_state['search_widget'] = keyword
+
+def on_history_change():
+    selected = st.session_state.get('history_dropdown')
+    if selected and selected != "🔍 검색 기록 선택...":
+        st.session_state['search_widget'] = selected
+        st.session_state['search_input'] = selected
+
+# --------------------------------------------------------------------------
+# 3. 크롤링 로직
 # --------------------------------------------------------------------------
 def clean_html(raw_html):
     cleanr = re.compile('<.*?>')
@@ -61,158 +74,148 @@ def extract_audio_deeply(data):
     return None
 
 def get_naver_data(keyword):
-    # 모바일 API 엔드포인트가 차단이 덜 되는 경향이 있어 변경 시도
-    # PC 버전: https://en.dict.naver.com/api3/enko/search?query=...
     url = f"https://en.dict.naver.com/api3/enko/search?query={keyword}&m=pc&lang=ko"
-    
     headers = {
-        # 크롬 브라우저인 척하는 강력한 헤더
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
         "Referer": "https://en.dict.naver.com/",
-        "Connection": "keep-alive"
     }
-    
     result_dict = {"meanings": [], "audio": {"US": None, "GB": None}}
-    
     try:
-        response = requests.get(url, headers=headers, timeout=5) # 5초 타임아웃 설정
-        
-        # [디버깅] 상태 코드가 200(성공)이 아니면 에러 메시지를 화면에 출력
-        if response.status_code != 200:
-            st.error(f"서버 연결 오류: {response.status_code}")
-            # 403이면 차단됨, 500이면 네이버 서버 오류
-            return result_dict
-
+        response = requests.get(url, headers=headers, timeout=5)
+        if response.status_code != 200: return result_dict
         full_data = response.json()
-        
         all_found_values = extract_values_deeply(full_data)
         meaning_results = []
         for val in dict.fromkeys(all_found_values):
             if any(ord('가') <= ord(char) <= ord('힣') for char in val):
-                if val != keyword:
-                    meaning_results.append(val)
+                if val != keyword: meaning_results.append(val)
         result_dict["meanings"] = meaning_results[:15]
-
         audio_list = extract_audio_deeply(full_data)
         if audio_list:
             for item in audio_list:
                 s_type = str(item.get('symbolType', '')).upper()
                 s_file = item.get('symbolFile', '')
-                
-                if s_file and s_file.startswith("http://"):
-                    s_file = s_file.replace("http://", "https://")
-
+                if s_file and s_file.startswith("http://"): s_file = s_file.replace("http://", "https://")
                 if s_file:
-                    if 'US' in s_type or '미국' in s_type:
-                        result_dict["audio"]["US"] = s_file
-                    elif 'GB' in s_type or '영국' in s_type:
-                        result_dict["audio"]["GB"] = s_file
-    except Exception as e:
-        # 에러 발생 시 로그 출력
-        st.error(f"에러 발생: {str(e)}")
-        pass
-        
+                    if 'US' in s_type or '미국' in s_type: result_dict["audio"]["US"] = s_file
+                    elif 'GB' in s_type or '영국' in s_type: result_dict["audio"]["GB"] = s_file
+    except: pass
     return result_dict
 
 # --------------------------------------------------------------------------
-# 3. Streamlit 화면 구성 (모바일 최적화)
+# 4. Streamlit 화면 구성
 # --------------------------------------------------------------------------
 st.set_page_config(page_title="나만의 AI 영한사전", page_icon="🎧", layout="wide")
 
 st.markdown("""
 <style>
-    /* =========================================
-       [모바일 최적화 - Galaxy S25 Ultra 기준]
-       ========================================= */
+    html, body, [class*="css"] { font-family: 'Pretendard', sans-serif; }
     
-    /* 1. 기본 폰트 및 간격 조정 */
-    html, body, [class*="css"] {
-        font-family: 'Pretendard', sans-serif;
+    /* 메인 패딩 고정 */
+    div[data-testid="stMainBlockContainer"], 
+    div[data-testid="block-container"] {
+        padding: 2rem !important;
+        max-width: initial !important;
     }
-    [data-testid="stVerticalBlock"] { gap: 0.6rem !important; }
 
-    /* 2. 사이드바 (단어장) 스타일 */
-    [data-testid="stSidebar"] div.stButton > button {
+    /* ------------------------------------------------------------------
+       [핵심 수정] 사이드바 레이아웃 및 삭제 버튼 스타일링
+       ------------------------------------------------------------------ */
+       
+    /* 1. 사이드바 Row(행) 레이아웃 재정의 */
+    [data-testid="stSidebar"] [data-testid="stHorizontalBlock"] {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important; /* 줄바꿈 절대 금지 */
+        align-items: center !important; /* 수직 중앙 */
+        gap: 8px !important;
+        width: 100% !important;
+    }
+    
+    /* 2. 첫번째 컬럼 (단어 버튼) : 남은 공간 모두 차지 (Flex Grow) */
+    [data-testid="stSidebar"] [data-testid="stHorizontalBlock"] > div:first-child {
+        flex: 1 1 auto !important; 
+        min-width: 0 !important;   /* 텍스트 말줄임표 작동을 위한 필수 설정 */
+        width: auto !important;
+    }
+
+    /* 3. 두번째 컬럼 (삭제 버튼) : 내용물 크기만큼만 (Flex Shrink 없음) */
+    [data-testid="stSidebar"] [data-testid="stHorizontalBlock"] > div:last-child {
+        flex: 0 0 auto !important;
+        width: auto !important;
+        min-width: auto !important;
+    }
+
+    /* 4. 단어 버튼 스타일 */
+    [data-testid="stSidebar"] div.stButton > button[kind="secondary"] {
         text-align: left;
-        width: 100%; /* 모바일에서는 꽉 차게 */
-        border: none;
-        background-color: #f8f9fa;
-        padding: 12px 10px; /* 터치 영역 확대 */
-        margin: 2px 0;
-        border-radius: 8px;
-        font-size: 15px; /* 글씨 키움 */
-        font-weight: 500;
-        letter-spacing: -0.3px;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-    }
-    [data-testid="stSidebar"] div.stButton > button:hover {
-        background-color: #e9ecef;
-        color: #03c75a;
-    }
-
-    /* 3. 최근 검색어 버튼 (알약 모양) - 크고 누르기 쉽게 */
-    .main div.stButton > button {
         width: 100%;
-        border-radius: 12px; /* 둥근 사각형 */
-        letter-spacing: -0.5px;
-        padding: 8px 4px; /* 높이 확보 */
-        min-height: 45px; /* 최소 높이 지정 (터치 미스 방지) */
-        font-size: 15px;
-        font-weight: 500;
-        border: 1px solid #e0e0e0;
-        background-color: white;
-        white-space: nowrap; /* 줄바꿈 방지 */
-        overflow: hidden;
-        text-overflow: ellipsis; /* 긴 단어는 ... 처리 */
+        background-color: #f8f9fa;
+        padding: 8px 10px;
+        border: none;
+        border-radius: 8px;
+        font-size: 14px;
+        margin: 0 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
     }
-    .main div.stButton > button:active, .main div.stButton > button:focus {
-        border-color: #03c75a;
-        color: #03c75a;
-        background-color: #e8f5e9;
+    [data-testid="stSidebar"] div.stButton > button[kind="secondary"]:hover {
+        background-color: #e9ecef; color: #03c75a;
     }
 
-    /* 4. 결과 박스 (뜻 풀이) */
+    /* 5. [수정됨] 삭제 버튼 스타일 (빨간색 & Compact) */
+    /* 사이드바 안에 있는 primary 버튼만 타겟팅 */
+    [data-testid="stSidebar"] button[kind="primary"] {
+        background-color: #ff4b4b !important; /* 빨간색 배경 */
+        border-color: #ff4b4b !important;
+        color: white !important;
+        padding: 0px 10px !important; /* 버튼 크기 줄임 */
+        height: 38px !important;      /* 단어 버튼과 높이 맞춤 */
+        line-height: 1 !important;
+        margin: 0 !important;
+        width: auto !important;
+    }
+    
+    [data-testid="stSidebar"] button[kind="primary"]:hover {
+        background-color: #ff3333 !important; /* 호버 시 더 진한 빨강 */
+        border-color: #ff3333 !important;
+    }
+    
+    /* 아이콘 내부 정렬 보정 */
+    [data-testid="stSidebar"] button[kind="primary"] p {
+        font-size: 16px !important;
+        font-weight: bold !important;
+        margin-bottom: 0px !important;
+    }
+
+    /* 기타 UI 요소 */
+    div[data-testid="stAlert"] { padding: 2rem !important; border-radius: 12px !important; }
+    
+    button[kind="secondary"] { /* 메인화면 별표 버튼 */
+        border: none !important; background: transparent !important; box-shadow: none !important;
+        font-size: 24px !important; padding: 0 !important; margin-top: -10px !important;
+    }
+    button[kind="secondary"]:hover { color: #ffc107 !important; background: transparent !important; }
+
     .result-box {
-        background-color: #ffffff;
-        padding: 16px 20px;
-        border-radius: 12px;
-        border-left: 6px solid #03c75a;
-        margin-bottom: 10px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.08);
-        font-size: 16px;
-        line-height: 1.5;
+        background-color: #ffffff; padding: 16px 20px; border-radius: 12px;
+        border-left: 6px solid #03c75a; margin-bottom: 10px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.08); font-size: 16px; line-height: 1.5;
     }
+    div[data-testid="column"] button[kind="primary"] { margin-top: 0px; }
+    [data-testid="stVerticalBlock"] { gap: 0.5rem !important; }
 
-    /* 5. 모바일 전용 미디어 쿼리 (가로폭 768px 이하) */
-    @media (max-width: 768px) {
-        /* 사이드바 삭제 버튼 정렬 보정 */
-        [data-testid="stSidebar"] div[data-testid="column"] {
-             min-width: 0 !important;
-        }
-        
-        /* 메인화면 여백 줄이기 */
-        .block-container {
-            padding-top: 2rem;
-            padding-left: 1rem;
-            padding-right: 1rem;
-        }
-        
-        /* 텍스트 인풋(검색창) 키우기 */
-        .stTextInput > div > div > input {
-            font-size: 16px;
-            padding: 10px;
-            height: 50px; /* 입력창 높이 확대 */
-        }
-    }
 </style>
 """, unsafe_allow_html=True)
 
+# 초기화
 if 'data' not in st.session_state:
     st.session_state['data'] = load_data()
 if 'search_input' not in st.session_state:
     st.session_state['search_input'] = ""
+if 'search_widget' not in st.session_state:
+    st.session_state['search_widget'] = ""
 
 # --- 사이드바 ---
 with st.sidebar:
@@ -222,14 +225,13 @@ with st.sidebar:
     
     if favorites:
         for fav_word in favorites:
-            # 비율 조정 (단어 8 : 삭제 2)
-            c1, c2 = st.columns([0.8, 0.2], gap="small")
+            # 비율은 크게 중요하지 않음 (CSS flex가 처리)
+            c1, c2 = st.columns([0.8, 0.2])
             with c1:
-                if st.button(f"📄 {fav_word}", key=f"fav_{fav_word}"):
-                    st.session_state['search_input'] = fav_word
-                    st.rerun()
+                # kind="secondary"를 명시하여 CSS 선택자가 정확히 잡도록 함
+                st.button(f"📄 {fav_word}", key=f"fav_{fav_word}", on_click=set_keyword, args=(fav_word,), type="secondary")
             with c2:
-                # 삭제 버튼 빨간색 강조
+                # kind="primary" (삭제 버튼 - CSS에서 빨간색 적용됨)
                 if st.button("✕", key=f"fav_del_{fav_word}", type="primary"):
                     favorites.remove(fav_word)
                     st.session_state['data']['favorites'] = favorites
@@ -239,77 +241,67 @@ with st.sidebar:
 # --- 메인 화면 ---
 st.title("🎧 AI 영한사전")
 
-# 검색창에 placeholder 추가하여 가이드 제공
-keyword = st.text_input("단어를 입력하세요", key="search_widget", value=st.session_state['search_input'], placeholder="예: apple, love")
+# 검색창
+col_search, col_btn = st.columns([0.8, 0.2], gap="small")
+with col_search:
+    user_query = st.text_input("검색어 입력", key="search_widget", label_visibility="collapsed", placeholder="단어를 입력하세요")
+with col_btn:
+    btn_click = st.button("검색", type="primary", use_container_width=True)
 
+# 검색 기록
 history = st.session_state['data']['history']
-
-# [최근 검색어 영역]
 if history:
-    st.markdown("---")
-    h_col1, h_col2 = st.columns([0.7, 0.3])
-    with h_col1: st.caption(f"🕒 최근 검색 ({len(history)}개)")
-    with h_col2: delete_mode = st.toggle("삭제모드")
-    
-    # [모바일 최적화] S25 Ultra 화면 폭에 맞춰 6열 -> 3열로 변경
-    # 3열이 모바일에서 버튼 크기가 적당히 크고 예쁨
-    cols = st.columns(3, gap="small") 
-    
-    for i, h_word in enumerate(history):
-        with cols[i % 3]: # 3으로 나눈 나머지로 인덱스 배정
-            if delete_mode:
-                if st.button(f"✕ {h_word}", key=f"del_{i}", type="primary"):
-                    history.pop(i)
-                    st.session_state['data']['history'] = history
-                    save_data(st.session_state['data']); st.rerun()
-            else:
-                if st.button(h_word, key=f"hist_{i}"):
-                    st.session_state['search_input'] = h_word; st.rerun()
-    st.markdown("---")
+    sorted_history = sorted(history, key=str.lower)
+    h_col1, h_col2 = st.columns([0.8, 0.2], gap="small")
+    with h_col1:
+        st.selectbox("최근 검색 기록", options=["🔍 검색 기록 선택..."] + sorted_history, key="history_dropdown", on_change=on_history_change, label_visibility="collapsed")
+    with h_col2:
+        if st.button("🗑️ 삭제", use_container_width=True):
+            st.session_state['data']['history'] = []
+            save_data(st.session_state['data'])
+            st.rerun()
 
+# 검색 로직
+final_keyword = user_query
+if btn_click: final_keyword = user_query
+elif user_query: final_keyword = user_query
 
-if keyword:
-    if not delete_mode and keyword not in history:
-        if keyword in history: history.remove(keyword)
-        history.insert(0, keyword)
-        st.session_state['data']['history'] = history[:20]
-        save_data(st.session_state['data'])
+if final_keyword:
+    if final_keyword not in history: history.insert(0, final_keyword)
+    else: history.remove(final_keyword); history.insert(0, final_keyword)
+    if len(history) > 20: history = history[:20]
+    st.session_state['data']['history'] = history
+    save_data(st.session_state['data'])
 
     with st.spinner("검색 중..."):
-        data = get_naver_data(keyword)
+        data = get_naver_data(final_keyword)
         
         if data["meanings"]:
-            # 1. 단어 제목 + 즐겨찾기 (모바일 레이아웃 조정)
-            c_title, c_fav = st.columns([0.75, 0.25])
+            c_title, c_star = st.columns([0.8, 0.2])
             with c_title:
-                st.markdown(f"## :blue[{keyword}]")
-            with c_fav:
-                if keyword in favorites:
-                    if st.button("⭐ On", type="primary", use_container_width=True):
-                        favorites.remove(keyword); save_data(st.session_state['data']); st.rerun()
-                else:
-                    if st.button("☆ Off", use_container_width=True):
-                        favorites.append(keyword); save_data(st.session_state['data']); st.rerun()
+                st.markdown(f"## :blue[{final_keyword}]")
+            with c_star:
+                is_fav = final_keyword in favorites
+                icon = "⭐" if is_fav else "☆"
+                # 별표 버튼 (type="secondary"로 CSS 적용)
+                if st.button(icon, key="fav_toggle_btn", type="secondary"):
+                    if is_fav: favorites.remove(final_keyword)
+                    else: favorites.append(final_keyword)
+                    save_data(st.session_state['data'])
+                    st.rerun()
 
-            # 2. 오디오 플레이어
             aud = data["audio"]
             if aud["US"] or aud["GB"]:
-                st.write("") # 약간의 여백
-                # 모바일에서는 버튼이 작아보일 수 있으므로 오디오도 100% 폭 활용
+                st.write("")
                 ac1, ac2 = st.columns(2)
                 with ac1:
-                    if aud["US"]:
-                        st.caption("🇺🇸 미국")
-                        st.audio(aud["US"], format='audio/mp3')
+                    if aud["US"]: st.caption("🇺🇸 미국"); st.audio(aud["US"], format='audio/mp3')
                 with ac2:
-                    if aud["GB"]:
-                        st.caption("🇬🇧 영국")
-                        st.audio(aud["GB"], format='audio/mp3')
+                    if aud["GB"]: st.caption("🇬🇧 영국"); st.audio(aud["GB"], format='audio/mp3')
 
-            st.write("") # 여백
-
-            # 3. 뜻 풀이 (깔끔한 카드 스타일)
+            st.write("") 
             for i, m in enumerate(data["meanings"], 1):
                 st.markdown(f'<div class="result-box"><b>{i}.</b> {m}</div>', unsafe_allow_html=True)
         else:
-            st.warning("결과를 찾을 수 없습니다.")
+             if user_query:
+                st.warning("결과를 찾을 수 없습니다.")
