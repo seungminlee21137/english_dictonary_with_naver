@@ -3,7 +3,6 @@ import requests
 import json
 import re
 import os
-import uuid
 
 # --------------------------------------------------------------------------
 # 1. 데이터 관리 (저장/로드)
@@ -24,42 +23,7 @@ def save_data(data):
         json.dump(data, f, ensure_ascii=False, indent=4)
 
 # --------------------------------------------------------------------------
-# 2. 오디오 버튼 디자인 (HTML/JS)
-# --------------------------------------------------------------------------
-def style_audio_button(url, label, icon):
-    unique_id = str(uuid.uuid4())
-    button_style = """
-        background-color: #f0f2f6;
-        border: 1px solid #dce4ef;
-        border-radius: 20px;
-        color: #31333F;
-        padding: 6px 16px;
-        text-align: center;
-        text-decoration: none;
-        display: inline-block;
-        font-size: 15px;
-        font-weight: 600;
-        margin: 0 5px;
-        cursor: pointer;
-        transition-duration: 0.2s;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-    """
-    hover_script = f"""
-        onmouseover="this.style.backgroundColor='#e0e2e6'; this.style.borderColor='#c8d0db';"
-        onmouseout="this.style.backgroundColor='#f0f2f6'; this.style.borderColor='#dce4ef';"
-    """
-    html_code = f"""
-        <div style="display:inline-block;">
-            <audio id="audio_{unique_id}" src="{url}"></audio>
-            <button style="{button_style}" onclick="document.getElementById('audio_{unique_id}').play()" {hover_script}>
-                {icon} {label}
-            </button>
-        </div>
-    """
-    return html_code
-
-# --------------------------------------------------------------------------
-# 3. 크롤링 로직
+# 2. 크롤링 로직 (HTTPS 변환 추가)
 # --------------------------------------------------------------------------
 def clean_html(raw_html):
     cleanr = re.compile('<.*?>')
@@ -122,8 +86,11 @@ def get_naver_data(keyword):
             for item in audio_list:
                 s_type = str(item.get('symbolType', '')).upper()
                 s_file = item.get('symbolFile', '')
-                if not s_type and 'US' in str(item): s_type = 'US'
-                if not s_type and 'GB' in str(item): s_type = 'GB'
+                
+                # [중요] HTTP를 HTTPS로 강제 변환 (보안 이슈 해결)
+                if s_file and s_file.startswith("http://"):
+                    s_file = s_file.replace("http://", "https://")
+
                 if s_file:
                     if 'US' in s_type or '미국' in s_type:
                         result_dict["audio"]["US"] = s_file
@@ -133,64 +100,43 @@ def get_naver_data(keyword):
     return result_dict
 
 # --------------------------------------------------------------------------
-# 4. Streamlit 화면 구성
+# 3. Streamlit 화면 구성
 # --------------------------------------------------------------------------
 st.set_page_config(page_title="나만의 AI 영한사전", page_icon="🎧", layout="wide")
 
 st.markdown("""
 <style>
-    /* 1. 사이드바 (즐겨찾기) 스타일 - width 100% 제거 */
+    /* 전체 간격 조절 */
+    [data-testid="stVerticalBlock"] { gap: 0.5rem !important; }
+
+    /* 사이드바 스타일 */
     [data-testid="stSidebar"] div.stButton > button {
-        text-align: left;           /* 왼쪽 정렬 */
-        width: auto;                /* 내용만큼만 너비 차지 */
-        border: none;               /* 테두리 없애기 */
-        background-color: transparent; 
-        padding-left: 5px;          
-    }
-    [data-testid="stSidebar"] div.stButton > button:hover {
-        background-color: #f0f2f6;  
-        color: #03c75a;             
-        font-weight: bold;
+        text-align: left;
+        width: auto;
+        border: none;
+        background-color: #f1f3f5;
+        padding: 6px 10px;
+        margin: 2px 0;
+        border-radius: 6px;
+        font-size: 14px;
+        letter-spacing: -0.5px;
     }
     
-    /* 사이드바 삭제 버튼 정렬 */
-    [data-testid="stSidebar"] div[data-testid="column"] + div[data-testid="column"] div.stButton > button {
-        text-align: center;
-        width: 100%; /* 삭제 버튼은 클릭 편의상 넓게 */
-        color: #999;
-    }
-
-    /* 2. 메인 화면 알약 버튼 */
+    /* 최근 검색어 버튼 */
     .main div.stButton > button {
         border-radius: 20px;
-        border: 1px solid #e0e0e0;
-        background-color: white;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        transition: all 0.2s ease-in-out;
-        font-size: 14px;
-        color: #333;
-    }
-    .main div.stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        border-color: #03c75a;
-        color: #03c75a;
-    }
-    .main div.stButton > button[kind="primary"] {
-        background-color: #ff4b4b !important;
-        color: white !important;
-        border: none !important;
+        letter-spacing: -0.3px;
+        padding: 4px 16px;
     }
 
-    /* 3. 결과 박스 */
+    /* 결과 박스 */
     .result-box {
-        background-color: #f9f9f9;
-        padding: 18px;
-        border-radius: 12px;
-        border-left: 6px solid #03c75a;
-        margin-bottom: 12px;
-        font-size: 16px;
-        line-height: 1.6;
+        background-color: #ffffff;
+        padding: 14px 18px;
+        border-radius: 8px;
+        border-left: 5px solid #03c75a;
+        margin-bottom: 8px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -200,13 +146,11 @@ if 'data' not in st.session_state:
 if 'search_input' not in st.session_state:
     st.session_state['search_input'] = ""
 
-# --- 사이드바: 즐겨찾기 ---
+# --- 사이드바 ---
 with st.sidebar:
     st.header("⭐ 단어장")
-    st.markdown("---")
-    
     favorites = st.session_state['data']['favorites']
-    favorites.sort(key=str.lower) # ABC 순 정렬
+    favorites.sort(key=str.lower)
     
     if favorites:
         for fav_word in favorites:
@@ -221,99 +165,74 @@ with st.sidebar:
                     st.session_state['data']['favorites'] = favorites
                     save_data(st.session_state['data'])
                     st.rerun()
-    else:
-        st.info("단어를 추가해보세요!")
 
 # --- 메인 화면 ---
-st.title("🎧 듣는 AI 영한사전")
+st.title("🎧 AI 영한사전")
+keyword = st.text_input("단어를 입력하세요", key="search_widget", value=st.session_state['search_input'])
 
-keyword = st.text_input("단어 검색", key="search_widget", value=st.session_state['search_input'])
-
-delete_mode = False
 history = st.session_state['data']['history']
-
 if history:
     h_col1, h_col2 = st.columns([0.85, 0.15])
-    with h_col1:
-        st.caption("🕒 최근 검색어")
-    with h_col2:
-        delete_mode = st.toggle("🗑️ 삭제", key="del_mode")
-
-    if delete_mode:
-        if st.button("🚨 전체 삭제", type="primary", use_container_width=True):
-            st.session_state['data']['history'] = []
-            save_data(st.session_state['data'])
-            st.rerun()
-
+    with h_col1: st.caption("🕒 최근 검색어")
+    delete_mode = h_col2.toggle("🗑️ 삭제")
+    
     cols = st.columns(6, gap="small")
     for i, h_word in enumerate(history):
         with cols[i % 6]:
             if delete_mode:
-                if st.button(f"✕ {h_word}", key=f"del_btn_{i}", type="primary", use_container_width=True):
+                if st.button(f"✕ {h_word}", key=f"del_{i}", type="primary"):
                     history.pop(i)
                     st.session_state['data']['history'] = history
-                    save_data(st.session_state['data'])
-                    st.rerun()
+                    save_data(st.session_state['data']); st.rerun()
             else:
-                if st.button(h_word, key=f"hist_{i}", use_container_width=True):
-                    st.session_state['search_input'] = h_word
-                    st.rerun()
+                if st.button(h_word, key=f"hist_{i}"):
+                    st.session_state['search_input'] = h_word; st.rerun()
     st.divider()
 
 if keyword:
-    if not delete_mode:
+    if not delete_mode and keyword not in history:
         if keyword in history: history.remove(keyword)
         history.insert(0, keyword)
-        if len(history) > 20: history = history[:20]
-        st.session_state['data']['history'] = history
+        st.session_state['data']['history'] = history[:20]
         save_data(st.session_state['data'])
 
-    with st.spinner(f"'{keyword}' 분석 중..."):
+    with st.spinner("검색 중..."):
         data = get_naver_data(keyword)
-        meanings = data["meanings"]
-        audios = data["audio"]
-
-        if meanings:
+        
+        if data["meanings"]:
+            # 1. 단어 제목 + 즐겨찾기 버튼
             col1, col2 = st.columns([0.85, 0.15])
-            with col1:
-                st.markdown(f"## :blue[{keyword}]")
-            with col2:
-                if keyword in st.session_state['data']['favorites']:
-                    if st.button("⭐ 해제", type="primary", use_container_width=True):
-                        st.session_state['data']['favorites'].remove(keyword)
-                        save_data(st.session_state['data'])
-                        st.rerun()
-                else:
-                    if st.button("☆ 추가", use_container_width=True):
-                        if keyword not in st.session_state['data']['favorites']:
-                            st.session_state['data']['favorites'].append(keyword)
-                            save_data(st.session_state['data'])
-                            st.rerun()
+            col1.markdown(f"## :blue[{keyword}]")
+            
+            if keyword in favorites:
+                if col2.button("⭐ 해제", type="primary"):
+                    favorites.remove(keyword); save_data(st.session_state['data']); st.rerun()
+            else:
+                if col2.button("☆ 추가"):
+                    favorites.append(keyword); save_data(st.session_state['data']); st.rerun()
 
-            audio_html_list = []
-            if audios["US"]:
-                audio_html_list.append(style_audio_button(audios["US"], "듣기", "🔊 🇺🇸"))
-            if audios["GB"]:
-                audio_html_list.append(style_audio_button(audios["GB"], "듣기", "🔊 🇬🇧"))
-            
-            if audio_html_list:
-                combined_html = "&nbsp;&nbsp;".join(audio_html_list)
-                st.markdown(f"<div style='margin-bottom: 20px;'>{combined_html}</div>", unsafe_allow_html=True)
-            
+            # 2. 오디오 플레이어 (st.audio 사용으로 깨짐 방지)
+            aud = data["audio"]
+            if aud["US"] or aud["GB"]:
+                st.markdown("---") # 구분선
+                
+                # 오디오가 2개(미국/영국) 다 있으면 2단 컬럼, 하나면 1단
+                ac1, ac2 = st.columns(2)
+                
+                with ac1:
+                    if aud["US"]:
+                        st.caption("🇺🇸 미국식 발음")
+                        st.audio(aud["US"], format='audio/mp3')
+                
+                with ac2:
+                    if aud["GB"]:
+                        st.caption("🇬🇧 영국식 발음")
+                        st.audio(aud["GB"], format='audio/mp3')
+
             st.markdown("---")
 
-            for i, val in enumerate(meanings, 1):
-                st.markdown(
-                    f"""
-                    <div class="result-box">
-                        <span style="font-weight:bold; font-size:1.2em; color:#03c75a; margin-right:12px;">{i}.</span>
-                        <span style="font-size:1.1em; color:#333;">{val}</span>
-                    </div>
-                    """, 
-                    unsafe_allow_html=True
-                )
+            # 3. 뜻 풀이
+            for i, m in enumerate(data["meanings"], 1):
+                st.markdown(f'<div class="result-box"><b>{i}.</b> {m}</div>', unsafe_allow_html=True)
         else:
-            st.warning("검색 결과가 없습니다.")
-
-st.markdown("<br><br>", unsafe_allow_html=True)
-st.caption("Data provided by Naver Dictionary API")
+            st.warning("결과를 찾을 수 없습니다.")
