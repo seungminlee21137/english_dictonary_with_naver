@@ -23,7 +23,7 @@ def save_data(data):
         json.dump(data, f, ensure_ascii=False, indent=4)
 
 # --------------------------------------------------------------------------
-# 2. 크롤링 로직 (HTTPS 변환 추가)
+# 2. 크롤링 로직 (HTTPS 변환 포함)
 # --------------------------------------------------------------------------
 def clean_html(raw_html):
     cleanr = re.compile('<.*?>')
@@ -87,7 +87,7 @@ def get_naver_data(keyword):
                 s_type = str(item.get('symbolType', '')).upper()
                 s_file = item.get('symbolFile', '')
                 
-                # [중요] HTTP를 HTTPS로 강제 변환 (보안 이슈 해결)
+                # [중요] HTTP -> HTTPS 변환
                 if s_file and s_file.startswith("http://"):
                     s_file = s_file.replace("http://", "https://")
 
@@ -100,43 +100,94 @@ def get_naver_data(keyword):
     return result_dict
 
 # --------------------------------------------------------------------------
-# 3. Streamlit 화면 구성
+# 3. Streamlit 화면 구성 (모바일 최적화)
 # --------------------------------------------------------------------------
 st.set_page_config(page_title="나만의 AI 영한사전", page_icon="🎧", layout="wide")
 
 st.markdown("""
 <style>
-    /* 전체 간격 조절 */
-    [data-testid="stVerticalBlock"] { gap: 0.5rem !important; }
+    /* =========================================
+       [모바일 최적화 - Galaxy S25 Ultra 기준]
+       ========================================= */
+    
+    /* 1. 기본 폰트 및 간격 조정 */
+    html, body, [class*="css"] {
+        font-family: 'Pretendard', sans-serif;
+    }
+    [data-testid="stVerticalBlock"] { gap: 0.6rem !important; }
 
-    /* 사이드바 스타일 */
+    /* 2. 사이드바 (단어장) 스타일 */
     [data-testid="stSidebar"] div.stButton > button {
         text-align: left;
-        width: auto;
+        width: 100%; /* 모바일에서는 꽉 차게 */
         border: none;
-        background-color: #f1f3f5;
-        padding: 6px 10px;
+        background-color: #f8f9fa;
+        padding: 12px 10px; /* 터치 영역 확대 */
         margin: 2px 0;
-        border-radius: 6px;
-        font-size: 14px;
-        letter-spacing: -0.5px;
-    }
-    
-    /* 최근 검색어 버튼 */
-    .main div.stButton > button {
-        border-radius: 20px;
+        border-radius: 8px;
+        font-size: 15px; /* 글씨 키움 */
+        font-weight: 500;
         letter-spacing: -0.3px;
-        padding: 4px 16px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+    [data-testid="stSidebar"] div.stButton > button:hover {
+        background-color: #e9ecef;
+        color: #03c75a;
     }
 
-    /* 결과 박스 */
+    /* 3. 최근 검색어 버튼 (알약 모양) - 크고 누르기 쉽게 */
+    .main div.stButton > button {
+        width: 100%;
+        border-radius: 12px; /* 둥근 사각형 */
+        letter-spacing: -0.5px;
+        padding: 8px 4px; /* 높이 확보 */
+        min-height: 45px; /* 최소 높이 지정 (터치 미스 방지) */
+        font-size: 15px;
+        font-weight: 500;
+        border: 1px solid #e0e0e0;
+        background-color: white;
+        white-space: nowrap; /* 줄바꿈 방지 */
+        overflow: hidden;
+        text-overflow: ellipsis; /* 긴 단어는 ... 처리 */
+    }
+    .main div.stButton > button:active, .main div.stButton > button:focus {
+        border-color: #03c75a;
+        color: #03c75a;
+        background-color: #e8f5e9;
+    }
+
+    /* 4. 결과 박스 (뜻 풀이) */
     .result-box {
         background-color: #ffffff;
-        padding: 14px 18px;
-        border-radius: 8px;
-        border-left: 5px solid #03c75a;
-        margin-bottom: 8px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        padding: 16px 20px;
+        border-radius: 12px;
+        border-left: 6px solid #03c75a;
+        margin-bottom: 10px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.08);
+        font-size: 16px;
+        line-height: 1.5;
+    }
+
+    /* 5. 모바일 전용 미디어 쿼리 (가로폭 768px 이하) */
+    @media (max-width: 768px) {
+        /* 사이드바 삭제 버튼 정렬 보정 */
+        [data-testid="stSidebar"] div[data-testid="column"] {
+             min-width: 0 !important;
+        }
+        
+        /* 메인화면 여백 줄이기 */
+        .block-container {
+            padding-top: 2rem;
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }
+        
+        /* 텍스트 인풋(검색창) 키우기 */
+        .stTextInput > div > div > input {
+            font-size: 16px;
+            padding: 10px;
+            height: 50px; /* 입력창 높이 확대 */
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -154,13 +205,15 @@ with st.sidebar:
     
     if favorites:
         for fav_word in favorites:
-            c1, c2 = st.columns([0.8, 0.2])
+            # 비율 조정 (단어 8 : 삭제 2)
+            c1, c2 = st.columns([0.8, 0.2], gap="small")
             with c1:
                 if st.button(f"📄 {fav_word}", key=f"fav_{fav_word}"):
                     st.session_state['search_input'] = fav_word
                     st.rerun()
             with c2:
-                if st.button("✕", key=f"fav_del_{fav_word}"):
+                # 삭제 버튼 빨간색 강조
+                if st.button("✕", key=f"fav_del_{fav_word}", type="primary"):
                     favorites.remove(fav_word)
                     st.session_state['data']['favorites'] = favorites
                     save_data(st.session_state['data'])
@@ -168,17 +221,25 @@ with st.sidebar:
 
 # --- 메인 화면 ---
 st.title("🎧 AI 영한사전")
-keyword = st.text_input("단어를 입력하세요", key="search_widget", value=st.session_state['search_input'])
+
+# 검색창에 placeholder 추가하여 가이드 제공
+keyword = st.text_input("단어를 입력하세요", key="search_widget", value=st.session_state['search_input'], placeholder="예: apple, love")
 
 history = st.session_state['data']['history']
+
+# [최근 검색어 영역]
 if history:
-    h_col1, h_col2 = st.columns([0.85, 0.15])
-    with h_col1: st.caption("🕒 최근 검색어")
-    delete_mode = h_col2.toggle("🗑️ 삭제")
+    st.markdown("---")
+    h_col1, h_col2 = st.columns([0.7, 0.3])
+    with h_col1: st.caption(f"🕒 최근 검색 ({len(history)}개)")
+    with h_col2: delete_mode = st.toggle("삭제모드")
     
-    cols = st.columns(6, gap="small")
+    # [모바일 최적화] S25 Ultra 화면 폭에 맞춰 6열 -> 3열로 변경
+    # 3열이 모바일에서 버튼 크기가 적당히 크고 예쁨
+    cols = st.columns(3, gap="small") 
+    
     for i, h_word in enumerate(history):
-        with cols[i % 6]:
+        with cols[i % 3]: # 3으로 나눈 나머지로 인덱스 배정
             if delete_mode:
                 if st.button(f"✕ {h_word}", key=f"del_{i}", type="primary"):
                     history.pop(i)
@@ -187,7 +248,8 @@ if history:
             else:
                 if st.button(h_word, key=f"hist_{i}"):
                     st.session_state['search_input'] = h_word; st.rerun()
-    st.divider()
+    st.markdown("---")
+
 
 if keyword:
     if not delete_mode and keyword not in history:
@@ -200,38 +262,36 @@ if keyword:
         data = get_naver_data(keyword)
         
         if data["meanings"]:
-            # 1. 단어 제목 + 즐겨찾기 버튼
-            col1, col2 = st.columns([0.85, 0.15])
-            col1.markdown(f"## :blue[{keyword}]")
-            
-            if keyword in favorites:
-                if col2.button("⭐ 해제", type="primary"):
-                    favorites.remove(keyword); save_data(st.session_state['data']); st.rerun()
-            else:
-                if col2.button("☆ 추가"):
-                    favorites.append(keyword); save_data(st.session_state['data']); st.rerun()
+            # 1. 단어 제목 + 즐겨찾기 (모바일 레이아웃 조정)
+            c_title, c_fav = st.columns([0.75, 0.25])
+            with c_title:
+                st.markdown(f"## :blue[{keyword}]")
+            with c_fav:
+                if keyword in favorites:
+                    if st.button("⭐ On", type="primary", use_container_width=True):
+                        favorites.remove(keyword); save_data(st.session_state['data']); st.rerun()
+                else:
+                    if st.button("☆ Off", use_container_width=True):
+                        favorites.append(keyword); save_data(st.session_state['data']); st.rerun()
 
-            # 2. 오디오 플레이어 (st.audio 사용으로 깨짐 방지)
+            # 2. 오디오 플레이어
             aud = data["audio"]
             if aud["US"] or aud["GB"]:
-                st.markdown("---") # 구분선
-                
-                # 오디오가 2개(미국/영국) 다 있으면 2단 컬럼, 하나면 1단
+                st.write("") # 약간의 여백
+                # 모바일에서는 버튼이 작아보일 수 있으므로 오디오도 100% 폭 활용
                 ac1, ac2 = st.columns(2)
-                
                 with ac1:
                     if aud["US"]:
-                        st.caption("🇺🇸 미국식 발음")
+                        st.caption("🇺🇸 미국")
                         st.audio(aud["US"], format='audio/mp3')
-                
                 with ac2:
                     if aud["GB"]:
-                        st.caption("🇬🇧 영국식 발음")
+                        st.caption("🇬🇧 영국")
                         st.audio(aud["GB"], format='audio/mp3')
 
-            st.markdown("---")
+            st.write("") # 여백
 
-            # 3. 뜻 풀이
+            # 3. 뜻 풀이 (깔끔한 카드 스타일)
             for i, m in enumerate(data["meanings"], 1):
                 st.markdown(f'<div class="result-box"><b>{i}.</b> {m}</div>', unsafe_allow_html=True)
         else:
